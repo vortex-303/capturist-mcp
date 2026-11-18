@@ -5,13 +5,23 @@ import Foundation
 
 /// `capturist setup …` and `capturist doctor`: tell agents Capturist exists, and check everything works.
 enum Setup {
-    static let home = FileManager.default.homeDirectoryForCurrentUser
+    /// `$HOME` when set (so tests and wrappers can point it elsewhere), else the account's home.
+    static let home: URL = {
+        if let value = ProcessInfo.processInfo.environment["HOME"], value.hasPrefix("/") { return URL(fileURLWithPath: value, isDirectory: true) }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }()
     static let startMarker = "<!-- capturist:start -->"
     static let endMarker = "<!-- capturist:end -->"
 
     static var binaryPath: String {
         let raw = Bundle.main.executablePath ?? CommandLine.arguments[0]
-        return URL(fileURLWithPath: raw).resolvingSymlinksInPath().path
+        let resolved = URL(fileURLWithPath: raw).resolvingSymlinksInPath().path
+        // Homebrew: point configs at the stable bin link, not the versioned Cellar path (gone after `brew upgrade`).
+        if let cellar = resolved.range(of: "/Cellar/") {
+            let link = String(resolved[..<cellar.lowerBound]) + "/bin/capturist"
+            if URL(fileURLWithPath: link).resolvingSymlinksInPath().path == resolved { return link }
+        }
+        return resolved
     }
 
     static var skillURL: URL { home.appendingPathComponent(".claude/skills/capturist/SKILL.md") }
@@ -31,104 +41,92 @@ enum Setup {
 
     // MARK: setup
 
+    static let usage = "Usage: capturist setup <agent|detect|shortcut> [--remove] [--yes]\n       capturist setup detect [--all] [--yes]   find the AI apps on this Mac (--all connects them)\nAgents: " + Agents.all.map(\.id).joined(separator: ", ")
+
     static func run(_ args: Args) throws -> Int32 {
-        if args.flags.contains("--list") || args.command == "setup" && args.positional.isEmpty {
+        if args.flags.contains("--list") || args.positional.isEmpty {
             printList()
-            if args.positional.isEmpty && !args.flags.contains("--list") {
-                Console.out("\nUsage: capturist setup <claude-code|opencode|codex|claude-desktop|cursor|chatgpt|shortcut> [--remove] [--notify] [--yes]")
-            }
+            if !args.flags.contains("--list") { Console.out("\n" + usage) }
             return 0
         }
-        let agent = args.positional[0]
+        let target = args.positional[0]
         let remove = args.flags.contains("--remove")
         let yes = args.flags.contains("--yes")
 
-        switch agent {
-        case "claude-code":
-            if remove {
-                try? FileManager.default.removeItem(at: skillURL.deletingLastPathComponent())
-                try setNotifyHook(enabled: false)
-                Console.out("Removed the Capturist skill (and session notice, if any) from Claude Code.")
-                return 0
-            }
-            var plan = ["write \(skillURL.path)"]
-            if args.flags.contains("--notify") { plan.append("add a SessionStart hook to \(claudeSettingsURL.path): \(notifyCommand)") }
-            plan.append("register the MCP server: claude mcp add --scope user capturist -- \(binaryPath) mcp")
-            guard confirm(plan, yes: yes) else { return 2 }
-            try FileManager.default.createDirectory(at: skillURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try skillText.write(to: skillURL, atomically: true, encoding: .utf8)
-            if args.flags.contains("--notify") { try setNotifyHook(enabled: true) }
-            Console.out("Claude Code now knows about Capturist (skill installed).")
-            runClaude(["mcp", "remove", "--scope", "user", "capturist"], quiet: true)   // replace any older entry
-            if runClaude(["mcp", "add", "--scope", "user", "capturist", "--", binaryPath, "mcp"], quiet: false) == 0 {
-                Console.out("Capturist tools added to Claude Code (restart open sessions).")
-            } else {
-                Console.out("Add the tools yourself:  claude mcp add --scope user capturist -- \(binaryPath) mcp")
-            }
-            return 0
-
-        case "opencode", "codex":
-            if agent == "codex", !remove { try? setTOMLServer(enabled: true, in: codexConfigURL) }
-            if agent == "codex", remove { try? setTOMLServer(enabled: false, in: codexConfigURL) }
-            let file = agentsFiles[agent]!
-            if remove {
-                try writeBlock(nil, to: file)
-                Console.out("Removed the Capturist block from \(file.path).")
-                return 0
-            }
-            guard confirm(["add a Capturist block to \(file.path) (between \(startMarker) and \(endMarker))"], yes: yes) else { return 2 }
-            try writeBlock(Guide.agentGuide, to: file)
-            Console.out("\(agent) now knows about Capturist (\(file.path)).")
-            return 0
-
-        case "claude-desktop":
-            let file = claudeDesktopConfigURL
-            if remove {
-                try setJSONServer(nil, in: file)
-                Console.out("Removed Capturist from \(file.path). Restart Claude to apply.")
-                return 0
-            }
-            guard confirm(["add the \"capturist\" MCP server to \(file.path) (backup kept)"], yes: yes) else { return 2 }
-            try setJSONServer(["command": binaryPath, "args": ["mcp"]], in: file)
-            Console.out("Claude (desktop app) is set up. Quit and reopen Claude, then ask it about your screenshots.")
-            return 0
-
-        case "chatgpt":
-            let file = codexConfigURL
-            if remove {
-                try setTOMLServer(enabled: false, in: file)
-                Console.out("Removed Capturist from \(file.path). Restart ChatGPT to apply.")
-                return 0
-            }
-            guard confirm(["add [mcp_servers.capturist] to \(file.path) (shared by the ChatGPT desktop app's Codex and the Codex CLI; backup kept)"], yes: yes) else { return 2 }
-            try setTOMLServer(enabled: true, in: file)
-            Console.out("""
-            ChatGPT desktop is set up for Codex (and the Codex CLI). Quit and reopen ChatGPT.
-            For regular ChatGPT chats, if your plan offers local MCP servers: ChatGPT › Settings ›
-            Connectors (or Apps) › Advanced › add a local server with
-              command: \(binaryPath)
-              arguments: mcp
-            """)
-            return 0
-
-        case "shortcut":
-            return try ServiceShortcut.run(args, remove: remove, yes: yes)
-
-        case "cursor":
-            Console.out("Add this MCP server in ~/.cursor/mcp.json:\n")
-            Console.out("""
-            {
-              "mcpServers": {
-                "capturist": { "command": "\(binaryPath)", "args": ["mcp"] }
-              }
-            }
-            """)
-            Console.out("\nThen restart the app. Tools: recent_captures, search_captures, get_capture, capture_text, recent_clips.")
-            return 0
-
-        default:
-            throw CLIError.badInput("Unknown target '\(agent)'. Use claude-code, opencode, codex, claude-desktop, cursor, chatgpt or shortcut.")
+        if target == "shortcut" { return try ServiceShortcut.run(args, remove: remove, yes: yes) }
+        if target == "detect" { return try detect(all: args.flags.contains("--all"), yes: yes) }
+        guard let agent = Agents.find(target) else {
+            throw CLIError.badInput("Unknown target '\(target)'.\n" + usage)
         }
+        if args.flags.contains("--manual") {
+            Console.out(agent.manual())
+            return 0
+        }
+        if remove {
+            guard let removeAgent = agent.remove else { Console.out("Remove Capturist from \(agent.name) by hand:\n\n" + agent.manual()); return 0 }
+            Console.out(try removeAgent())
+            return 0
+        }
+        guard let add = agent.add else {
+            Console.out("\(agent.name) is set up by hand:\n\n" + agent.manual())
+            return 0
+        }
+        if agent.id == "claude-code" {
+            var plan = agent.plan()
+            let notify = args.flags.contains("--notify")
+            if notify { plan.insert("add a SessionStart hook to \(claudeSettingsURL.path): \(notifyCommand)", at: 1) }
+            guard confirm(plan, yes: yes) else { return 2 }
+            Console.out(try addClaudeCode(notify: notify))
+            return 0
+        }
+        guard confirm(agent.plan(), yes: yes) else { return 2 }
+        Console.out(try add())
+        return 0
+    }
+
+    /// `setup detect [--all]`: which AI apps are on this Mac and whether Capturist is connected to each.
+    static func detect(all: Bool, yes: Bool) throws -> Int32 {
+        let agents = Agents.all
+        let found = agents.filter { $0.installed() }
+        Console.out("AI apps on this Mac:")
+        if found.isEmpty { Console.out("  none found") }
+        for agent in found {
+            let state = agent.connected() ? "✓ connected" : (agent.add == nil ? "— set up by hand: capturist setup \(agent.id)" : "— not connected: capturist setup \(agent.id)")
+            Console.out("  \(agent.name.padding(toLength: 26, withPad: " ", startingAt: 0)) \(state)")
+        }
+        var todo = found.filter { !$0.connected() && $0.add != nil }
+        // ChatGPT and Codex share ~/.codex/config.toml: let Codex do it when both are here.
+        let ids = Set(todo.map(\.id))
+        todo.removeAll { agent in agent.sameConfigAs.map(ids.contains) ?? false }
+        guard all else {
+            if !todo.isEmpty { Console.out("\nConnect all of them: capturist setup detect --all") }
+            return 0
+        }
+        guard !todo.isEmpty else { Console.out("\nNothing to connect."); return 0 }
+        guard confirm(todo.flatMap { $0.plan() }, yes: yes) else { return 2 }
+        var failures = 0
+        for agent in todo {
+            do {
+                let message = agent.id == "claude-code" ? try addClaudeCode(notify: false) : try agent.add!()
+                Console.out("✓ " + message)
+            } catch let error as CLIError {
+                failures += 1
+                Console.out("✗ \(agent.name): \(error.message)")
+            }
+        }
+        Console.out("\nReopen those apps (or start a new session) to pick up Capturist.")
+        return failures == 0 ? 0 : 1
+    }
+
+    static func addClaudeCode(notify: Bool) throws -> String {
+        try FileManager.default.createDirectory(at: skillURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try skillText.write(to: skillURL, atomically: true, encoding: .utf8)
+        if notify { try setNotifyHook(enabled: true) }
+        runClaude(["mcp", "remove", "--scope", "user", "capturist"], quiet: true)   // replace any older entry
+        if runClaude(["mcp", "add", "--scope", "user", "capturist", "--", binaryPath, "mcp"], quiet: true) == 0 {
+            return "Claude Code is set up (skill + tools). Restart open sessions."
+        }
+        return "Claude Code skill installed. Add the tools yourself:  claude mcp add --scope user capturist -- \(binaryPath) mcp"
     }
 
     // MARK: desktop app configs
@@ -138,25 +136,52 @@ enum Setup {
     static let tomlStart = "# capturist:start"
     static let tomlEnd = "# capturist:end"
 
-    /// Sets (or removes, `nil`) `mcpServers.capturist` in a JSON config, keeping everything else.
-    static func setJSONServer(_ server: [String: Any]?, in url: URL) throws {
+    /// Sets (or removes, `nil`) `<key…>.capturist` in a JSON config, keeping everything else (backup first).
+    /// Files we can't parse (JSONC with comments, trailing commas) are left alone and `snippet` is shown instead.
+    static func setJSONServer(_ server: [String: Any]?, in url: URL, key: [String] = ["mcpServers"], snippet: String = "") throws {
         var config: [String: Any] = [:]
         if let data = try? Data(contentsOf: url), !data.isEmpty {
-            guard let parsed = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw CLIError.badInput("\(url.path) isn't a JSON object; not changing it.")
+            guard let parsed = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                throw CLIError.badInput("\(url.path) isn't plain JSON (comments?); not changing it." + (snippet.isEmpty ? "" : " Add this yourself:\n\n" + snippet))
             }
             config = parsed
+            if server == nil, !AgentConfig.hasJSON(config, path: key, name: "capturist") { return }
             try? data.write(to: url.appendingPathExtension("capturist-backup"))
         } else if server == nil {
             return
         }
-        var servers = config["mcpServers"] as? [String: Any] ?? [:]
-        servers["capturist"] = server
-        config["mcpServers"] = servers
+        do {
+            config = try AgentConfig.setJSON(config, path: key, name: "capturist", entry: server)
+        } catch {
+            throw CLIError.badInput("\(url.path) has an unexpected \(key.joined(separator: ".")) value; not changing it.")
+        }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         try data.write(to: url, options: .atomic)
     }
+
+    static func jsonHasServer(in url: URL, key: [String]) -> Bool {
+        guard let data = try? Data(contentsOf: url),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return AgentConfig.hasJSON(config, path: key, name: "capturist")
+    }
+
+    /// Same for a block-style YAML config (Hermes).
+    static func setYAMLServer(_ fields: [String]?, in url: URL, section: String, snippet: String) throws {
+        let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        if fields == nil, !AgentConfig.hasYAML(text, section: section, name: "capturist") { return }
+        let updated: String
+        do {
+            updated = try AgentConfig.setYAML(text, section: section, name: "capturist", fields: fields)
+        } catch {
+            throw CLIError.badInput("\(url.path) uses a YAML style we don't edit; not changing it." + (snippet.isEmpty ? "" : " Add this yourself:\n\n" + snippet))
+        }
+        if !text.isEmpty { try? text.write(to: url.appendingPathExtension("capturist-backup"), atomically: true, encoding: .utf8) }
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try updated.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    static var tomlInstalled: Bool { (try? String(contentsOf: codexConfigURL, encoding: .utf8))?.contains(tomlStart) ?? false }
 
     /// Adds/removes our marked `[mcp_servers.capturist]` block in Codex's config.toml.
     static func setTOMLServer(enabled: Bool, in url: URL) throws {
@@ -262,16 +287,12 @@ enum Setup {
     }
 
     static func printList() {
-        let skill = FileManager.default.fileExists(atPath: skillURL.path)
-        Console.out("claude-code   skill: \(skill ? "installed" : "—")   session notice: \(notifyInstalled ? "on" : "off")")
-        for (agent, file) in agentsFiles.sorted(by: { $0.key < $1.key }) {
-            Console.out("\(agent.padding(toLength: 13, withPad: " ", startingAt: 0)) AGENTS.md block: \(blockInstalled(file) ? "installed" : "—")")
+        for agent in Agents.all {
+            let state = agent.connected() ? "connected" : (agent.installed() ? "not connected" : "—")
+            Console.out("\(agent.id.padding(toLength: 15, withPad: " ", startingAt: 0)) \(agent.name.padding(toLength: 26, withPad: " ", startingAt: 0)) \(state)")
         }
-        let desktop = (try? String(contentsOf: claudeDesktopConfigURL, encoding: .utf8))?.contains("\"capturist\"") ?? false
-        let codex = (try? String(contentsOf: codexConfigURL, encoding: .utf8))?.contains(tomlStart) ?? false
-        Console.out("claude-desktop MCP server: \(desktop ? "added" : "—")")
-        Console.out("chatgpt/codex  MCP server (~/.codex/config.toml): \(codex ? "added" : "—")")
-        Console.out("shortcut       save selected text: \(ServiceShortcut.currentSummary())")
+        Console.out("\("shortcut".padding(toLength: 15, withPad: " ", startingAt: 0)) \("Save selected text".padding(toLength: 26, withPad: " ", startingAt: 0)) \(ServiceShortcut.currentSummary())")
+        if notifyInstalled { Console.out("(Claude Code session notice is on)") }
     }
 
     // MARK: doctor

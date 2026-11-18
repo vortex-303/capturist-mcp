@@ -38,11 +38,31 @@ cp .build/release/capturist ~/.local/bin/
 ## Connect your AI apps
 
 ```sh
-capturist setup claude-desktop   # Claude (desktop app)
-capturist setup chatgpt          # ChatGPT (desktop app) and Codex
-capturist setup claude-code      # Claude Code
-capturist setup codex            # Codex CLI
+capturist setup detect           # which AI apps are on this Mac, and which are connected
+capturist setup detect --all     # connect all of them (shows every file first, asks once)
 ```
+
+Or one at a time (`--remove` undoes it, `--manual` prints the snippet instead):
+
+| App | Command | Config it changes |
+|---|---|---|
+| Claude (desktop app) | `capturist setup claude-desktop` | `~/Library/Application Support/Claude/claude_desktop_config.json` |
+| ChatGPT (desktop app) | `capturist setup chatgpt` | `~/.codex/config.toml` |
+| Claude Code | `capturist setup claude-code` | `claude mcp add --scope user` + skill |
+| Codex CLI | `capturist setup codex` | `~/.codex/config.toml` + `AGENTS.md` |
+| Hermes Agent | `capturist setup hermes` | `~/.hermes/config.yaml` |
+| Gemini CLI | `capturist setup gemini` | `~/.gemini/settings.json` |
+| Qwen Code | `capturist setup qwen` | `~/.qwen/settings.json` |
+| GitHub Copilot CLI | `capturist setup copilot` | `~/.copilot/mcp-config.json` |
+| OpenCode | `capturist setup opencode` | `~/.config/opencode/opencode.json` + `AGENTS.md` |
+| Cursor | `capturist setup cursor` | `~/.cursor/mcp.json` |
+| Windsurf | `capturist setup windsurf` | `~/.codeium/windsurf/mcp_config.json` |
+| VS Code (Copilot) | `capturist setup vscode` | `~/Library/Application Support/Code/User/mcp.json` |
+| Cline | `capturist setup cline` | `cline_mcp_settings.json` |
+| LM Studio | `capturist setup lmstudio` | `~/.lmstudio/mcp.json` |
+| Zed, Goose | `capturist setup zed` / `goose` | prints the steps (Zed's settings allow comments) |
+
+Every change keeps a `.capturist-backup` of the file, and files that aren't plain JSON are never rewritten. Step-by-step guide: https://capturist.nodetools.org/ai/
 
 Then reopen the app. For any other MCP client:
 
