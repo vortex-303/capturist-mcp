@@ -3,7 +3,7 @@
   "name": "io.github.vortex-303/capturist-mcp",
   "title": "Capturist",
   "description": "Your Mac screenshots, snippets and clipboard for AI agents, with text search inside screenshots.",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "websiteUrl": "https://capturist.nodetools.org/ai/",
   "repository": {
     "url": "https://github.com/vortex-303/capturist-mcp",
@@ -12,8 +12,8 @@
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/vortex-303/capturist-mcp/releases/download/v0.5.0/capturist.mcpb",
-      "fileSha256": "9af7758839cd19fcd8cbff8259a2eba519bdf7733d7d08d6f81709e1e3e1ad2a",
+      "identifier": "https://github.com/vortex-303/capturist-mcp/releases/download/v0.5.1/capturist.mcpb",
+      "fileSha256": "725622c28ddb21a78fcc109340a00ad6c36ba7d21bd9c187d159f7eaaac6550b",
       "transport": {
         "type": "stdio"
       }

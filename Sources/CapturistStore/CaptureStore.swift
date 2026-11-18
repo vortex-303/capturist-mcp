@@ -26,13 +26,13 @@ public enum CaptureStoreError: Error, CustomStringConvertible, Sendable {
 public actor CaptureStore {
     public nonisolated let root: URL
     public nonisolated let blobs: BlobStore
-    private let database: SQLiteDatabase
+    let database: SQLiteDatabase
 
     public init(root: URL) throws {
         self.root = root
         let fileManager = FileManager.default
         try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-        self.blobs = BlobStore(root: root)
+        self.blobs = BlobStore(root: root, filesFolder: LibraryConfig.filesFolder(in: root))
 
         let databaseURL = root.appendingPathComponent("library.sqlite")
         let database = try SQLiteDatabase(path: databaseURL.path)
@@ -46,7 +46,7 @@ public actor CaptureStore {
     /// For readers outside the app (the `capturist` CLI); write methods will fail.
     public init(readOnlyRoot root: URL) throws {
         self.root = root
-        self.blobs = BlobStore(root: root)
+        self.blobs = BlobStore(root: root, filesFolder: LibraryConfig.filesFolder(in: root))
         let databaseURL = root.appendingPathComponent("library.sqlite")
         guard FileManager.default.fileExists(atPath: databaseURL.path) else {
             throw SQLiteError(code: 14, message: "no library at \(databaseURL.path)")
@@ -317,7 +317,7 @@ public actor CaptureStore {
         blobs.url(forRelativePath: capture.originalPath)
     }
 
-    private func insert(_ capture: Capture) throws {
+    func insert(_ capture: Capture) throws {
         let parameters: [SQLValue] = [
             .text(capture.id.uuidString),
             .real(capture.createdAt.timeIntervalSince1970),
@@ -359,7 +359,7 @@ public actor CaptureStore {
         )
     }
 
-    private static func capture(from row: DatabaseRow) throws -> Capture {
+    static func capture(from row: DatabaseRow) throws -> Capture {
         guard let idValue = row.string("id"), let id = UUID(uuidString: idValue) else {
             throw CaptureStoreError.corruptRow("invalid id")
         }

@@ -9,20 +9,41 @@ public struct ImportedBlob: Sendable {
     public let fileExtension: String
 }
 
+/// Where the library's files live when they're outside the library root (e.g. ~/Capturist).
+/// A reference so the folder can change while the store is open (Settings › Library › Change…).
+public final class FilesLocation: @unchecked Sendable {
+    private let lock = NSLock()
+    private var folder: URL?
+    public init(_ folder: URL?) { self.folder = folder }
+    public var url: URL? { lock.withLock { folder } }
+    public func set(_ url: URL?) { lock.withLock { folder = url } }
+}
+
 public struct BlobStore: Sendable {
     public let root: URL
+    public let location: FilesLocation
 
-    public init(root: URL) {
+    public init(root: URL, filesFolder: URL? = nil) {
         self.root = root
+        self.location = FilesLocation(filesFolder)
     }
+
+    /// The user-visible files folder, or nil when files live in `<root>/Captures`.
+    public var filesFolder: URL? { location.url }
 
     public var capturesDirectory: URL {
-        root.appendingPathComponent("Captures", isDirectory: true)
+        filesFolder ?? root.appendingPathComponent("Captures", isDirectory: true)
     }
 
+    /// Stored paths stay `Captures/<name>` either way; with a files folder they resolve to `<folder>/<name>`.
     public func url(forRelativePath path: String) -> URL {
-        root.appendingPathComponent(path)
+        if let folder = filesFolder, path.hasPrefix(Self.prefix) {
+            return folder.appendingPathComponent(String(path.dropFirst(Self.prefix.count)))
+        }
+        return root.appendingPathComponent(path)
     }
+
+    public static let prefix = "Captures/"
 
     /// Copies `source` into the flat `Captures/` pool as `<preferredName>.<ext>`,
     /// adding " 2", " 3"… when the name is taken.
@@ -89,10 +110,14 @@ public struct BlobStore: Sendable {
     }
 
     private func uniqueFileName(base: String, fileExtension: String) -> String {
+        Self.uniqueFileName(base: base, fileExtension: fileExtension, in: capturesDirectory)
+    }
+
+    static func uniqueFileName(base: String, fileExtension: String, in directory: URL) -> String {
         let suffix = fileExtension.isEmpty ? "" : ".\(fileExtension)"
         var candidate = base + suffix
         var counter = 2
-        while FileManager.default.fileExists(atPath: capturesDirectory.appendingPathComponent(candidate).path) {
+        while FileManager.default.fileExists(atPath: directory.appendingPathComponent(candidate).path) {
             candidate = "\(base) \(counter)\(suffix)"
             counter += 1
         }
