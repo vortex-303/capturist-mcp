@@ -18,6 +18,16 @@ curl -fsSL https://capturist.nodetools.org/install-cli.sh | bash
 
 This installs a universal, Developer ID signed and Apple-notarized `capturist` to `~/.local/bin` after checking its checksum and signature. Run it again to update. The same zip is attached to each [GitHub release](../../releases).
 
+Or with Homebrew:
+
+```sh
+brew install vortex-303/tap/capturist
+```
+
+**Claude desktop, one click:** download `capturist.mcpb` from the [latest release](../../releases/latest) and open it (or Claude › Settings › Extensions › Install Extension).
+
+Listed in the official MCP Registry as `io.github.vortex-303/capturist-mcp`.
+
 Or build it yourself (Swift 6):
 
 ```sh

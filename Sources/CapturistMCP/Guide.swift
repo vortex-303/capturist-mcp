@@ -1,6 +1,6 @@
 /// Single source for help, the agent guide, the Claude Code Skill, AGENTS.md blocks and MCP descriptions.
 public enum Guide {
-    public static let version = "0.4.1"
+    public static let version = "0.4.2"
 
     public static let summary = "Capturist holds the user's screenshots, saved snippets and recent clipboard on this Mac. Use it whenever the user refers to a screenshot, a capture, something on their screen, a snippet, or something they copied."
 

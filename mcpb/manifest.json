@@ -1,0 +1,37 @@
+{
+  "manifest_version": "0.3",
+  "name": "capturist",
+  "display_name": "Capturist",
+  "version": "__VERSION__",
+  "description": "Your Mac screenshots, saved text and clipboard for AI: search the text inside screenshots and read captures from Capturist's local library.",
+  "long_description": "Capturist keeps your Mac screenshots, saved text and clipboard in one private library and reads the words inside every screenshot on your Mac. This extension lets Claude find and read them: ask about \"the error in my last screenshot\" or \"the invoice I captured yesterday\".\n\nWhen Capturist (1.1 or later) is open with Settings › AI Agents on, it relays to the app, including saving snippets if you allow it. Otherwise it reads your library read-only. Requires Capturist: https://capturist.nodetools.org",
+  "author": { "name": "Vortex303", "url": "https://vortex303.com" },
+  "repository": { "type": "git", "url": "https://github.com/vortex-303/capturist-mcp" },
+  "homepage": "https://capturist.nodetools.org/ai/",
+  "documentation": "https://capturist.nodetools.org/cli/",
+  "support": "https://capturist.nodetools.org/support/",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "server/capturist",
+    "mcp_config": {
+      "command": "${__dirname}/server/capturist",
+      "args": ["mcp"]
+    }
+  },
+  "tools": [
+    { "name": "recent_captures", "description": "Newest captures, optionally since a time or of one kind" },
+    { "name": "search_captures", "description": "Search names, source app, window title and the text inside screenshots" },
+    { "name": "get_capture", "description": "One capture: details, the text inside it, and the image" },
+    { "name": "capture_text", "description": "Just the text inside a capture" },
+    { "name": "recent_clips", "description": "Recent clipboard text, if clipboard history is on" },
+    { "name": "save_snippet", "description": "Save text to the library (only if allowed in Capturist)" },
+    { "name": "save_image", "description": "Save an image to the library (only if allowed in Capturist)" }
+  ],
+  "tools_generated": false,
+  "keywords": ["screenshots", "ocr", "clipboard", "macos", "capturist", "snippets"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": ["darwin"]
+  }
+}
